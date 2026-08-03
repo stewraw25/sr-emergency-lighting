@@ -350,6 +350,9 @@ var SEED_SITES=[];
 
 var ENGINEERS=["Stewart Rawson","Adam Gobern","Morgan Edwards","Ryan Harper"];
 
+var SEED_CLIENT="";
+var SEED_LOGO="";
+
 var SEED_CARRY=[];
 
 function nowMonth(){var d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");}
@@ -365,9 +368,17 @@ var db=load(), cur=null, sheetSite=null, editingFault=null, photoData=null, edit
 function load(){
   try{
     var r=localStorage.getItem(KEY);
-    if(r){var d=JSON.parse(r); if(d&&d.sites&&d.sites.length) return d;}
+    if(r){
+      var d=JSON.parse(r);
+      if(d&&d.sites&&d.sites.length){
+        if(!d.client&&SEED_CLIENT) d.client=SEED_CLIENT;
+        if(!d.clientLogo&&SEED_LOGO) d.clientLogo=SEED_LOGO;
+        return d;
+      }
+    }
   }catch(e){}
-  return {engineer:"Stewart Rawson",client:"",sites:JSON.parse(JSON.stringify(SEED_SITES)),
+  return {engineer:"Stewart Rawson",client:SEED_CLIENT,clientLogo:SEED_LOGO,
+          sites:JSON.parse(JSON.stringify(SEED_SITES)),
           current:newReport(nowMonth(),"monthly",SEED_CARRY),reports:[]};
 }
 function save(){
