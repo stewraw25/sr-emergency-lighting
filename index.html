@@ -208,7 +208,8 @@ text-transform:uppercase;letter-spacing:.03em;border:1px solid #cfdae3}
 
   <!-- HISTORY -->
   <div class="scr" id="scr-hist">
-    <div class="hero"><h2>Previous reports</h2><div class="sub">Tap to view or re-print.</div></div>
+    <div class="hero"><h2>Previous reports</h2>
+      <div class="sub">Open any month to amend checks, or re-print the PDF.</div></div>
     <div id="histList"></div>
   </div>
 
@@ -217,9 +218,9 @@ text-transform:uppercase;letter-spacing:.03em;border:1px solid #cfdae3}
     <div class="hero"><h2>Menu</h2><div class="sub" id="mSub"></div></div>
     <div class="menu">
       <button class="mi" onclick="show('home')"><b>Current round</b><span>Back to this month's checks</span></button>
-      <button class="mi" onclick="show('hist')"><b>Previous reports</b><span>View and re-print past months</span></button>
+      <button class="mi" onclick="show('hist')"><b>Previous reports</b><span>Open to amend, or re-print PDF</span></button>
       <button class="mi" onclick="openEngineer()"><b>Engineer details</b><span id="mEng"></span></button>
-      <button class="mi" onclick="openNewMonth()"><b>Start a new month</b><span>Rolls sites forward, keeps open faults</span></button>
+      <button class="mi" onclick="openNewMonth()"><b>Create or open a month</b><span>Backdate (e.g. July), amend, or start the next round</span></button>
       <button class="mi" onclick="openSites()"><b>Sites on this round</b><span id="mSites"></span></button>
       <button class="mi" onclick="exportData()"><b>Back up data</b><span>Download everything as a file</span></button>
       <button class="mi" onclick="document.getElementById('impf').click()"><b>Restore from back-up</b><span>Load a previously saved file</span></button>
@@ -308,8 +309,8 @@ text-transform:uppercase;letter-spacing:.03em;border:1px solid #cfdae3}
 </div></div>
 
 <div class="mod" id="m-new"><div class="mbox">
-  <h3>Start a new month</h3>
-  <p class="ms">Files this month's report and gives you a fresh sheet. Any faults still open carry over.</p>
+  <h3>Create or open a month</h3>
+  <p class="ms">Pick any month — including past ones (e.g. July). Existing reports open for editing; new months get a blank sheet. When you move to a later month, open faults carry forward.</p>
   <div class="fld"><label class="lbl">Month</label><input type="month" id="nMonth"></div>
   <div class="fld"><label class="lbl">Type of test</label>
     <div class="seg" id="nSeg">
@@ -317,7 +318,7 @@ text-transform:uppercase;letter-spacing:.03em;border:1px solid #cfdae3}
       <button data-v="annual">Annual 3-hour</button>
     </div></div>
   <div class="macts"><button class="btn g" onclick="closeM('m-new')">Cancel</button>
-    <button class="btn p" onclick="startNewMonth()">Start</button></div>
+    <button class="btn p" onclick="goToMonth()">Open</button></div>
 </div></div>
 
 <div class="mod" id="m-site"><div class="mbox">
@@ -462,9 +463,10 @@ function render(){
   document.getElementById("barSub").textContent =
     monthLabel(c.month)+" · "+(c.type==="annual"?"Annual 3-hour":"Monthly function");
   document.getElementById("hTitle").textContent = monthLabel(c.month)+" round";
-  document.getElementById("hSub").textContent =
-    (c.type==="annual"?"Annual 3-hour duration test":"Monthly instantaneous function test")
+  var sub=(c.type==="annual"?"Annual 3-hour duration test":"Monthly instantaneous function test")
     + (db.client?" · "+db.client:"");
+  if(c.done) sub+=" · signed — amend then Sign & finish to update the PDF";
+  document.getElementById("hSub").textContent = sub;
   document.getElementById("hBar").style.width = (db.sites.length?Math.round(done/db.sites.length*100):0)+"%";
   document.getElementById("hDone").innerHTML = "<b>"+done+"</b> of "+db.sites.length+" sites checked";
   document.getElementById("hFit").innerHTML = "<b>"+t.working+"</b> of "+t.total+" fittings working";
@@ -781,12 +783,12 @@ function buildPrint(rep){
   document.getElementById("print").innerHTML=html;
 }
 
-/* ---------------- NEW MONTH ---------------- */
+/* ---------------- MONTH SWITCH / AMEND ---------------- */
 function openNewMonth(){
-  document.getElementById("nMonth").value=nowMonth();
+  document.getElementById("nMonth").value=db.current.month||nowMonth();
   var b=document.querySelectorAll("#nSeg button");
   for(var i=0;i<b.length;i++){
-    b[i].classList.toggle("on", b[i].getAttribute("data-v")==="monthly");
+    b[i].classList.toggle("on", b[i].getAttribute("data-v")===(db.current.type||"monthly"));
     b[i].onclick=function(){
       var a=document.querySelectorAll("#nSeg button");
       for(var j=0;j<a.length;j++) a[j].classList.remove("on");
@@ -795,44 +797,141 @@ function openNewMonth(){
   }
   document.getElementById("m-new").classList.add("on");
 }
-function startNewMonth(){
+function findReport(month,type){
+  for(var i=0;i<db.reports.length;i++)
+    if(db.reports[i].month===month && db.reports[i].type===type) return i;
+  return -1;
+}
+function sortReports(){
+  db.reports.sort(function(a,b){
+    if(a.month!==b.month) return a.month<b.month?1:-1;
+    return (a.type==="annual"?1:0)-(b.type==="annual"?1:0);
+  });
+}
+/** Save the active round into History (replace same id/month+type if present). */
+function parkCurrent(){
+  if(!db.current) return;
+  var cur=db.current, mi=-1, i;
+  for(i=0;i<db.reports.length;i++){
+    if(db.reports[i].id===cur.id ||
+       (db.reports[i].month===cur.month && db.reports[i].type===cur.type)){
+      mi=i; break;
+    }
+  }
+  if(mi>=0) db.reports[mi]=cur;
+  else db.reports.unshift(cur);
+  sortReports();
+}
+function carryFrom(rep){
+  var carry=[], lab=monthLabel(rep.month);
+  db.sites.forEach(function(s){
+    var r=rep.results[s.id]; if(!r) return;
+    (r.faults||[]).forEach(function(f){
+      carry.push({site:s.id,ref:f.ref,status:f.status,note:f.note,since:lab});
+    });
+    if(r.fire==="fault")
+      carry.push({site:s.id,ref:"Fire panel",status:"fail",note:r.fireNote||"Fault showing",since:lab});
+  });
+  (rep.carry||[]).forEach(function(c){ carry.push(c); });
+  return carry;
+}
+/** Open existing month for amend, or create a blank/rolled-forward report. */
+function goToMonth(){
   var m=document.getElementById("nMonth").value||nowMonth();
   var on=document.querySelector("#nSeg button.on");
   var type=on?on.getAttribute("data-v"):"monthly";
-  var carry=[];
-  var lab=monthLabel(db.current.month);
-  db.sites.forEach(function(s){
-    var r=db.current.results[s.id]; if(!r) return;
-    r.faults.forEach(function(f){
-      carry.push({site:s.id,ref:f.ref,status:f.status,note:f.note,since:lab});
-    });
-    if(r.fire==="fault") carry.push({site:s.id,ref:"Fire panel",status:"fail",note:r.fireNote||"Fault showing",since:lab});
-  });
-  (db.current.carry||[]).forEach(function(c){ carry.push(c); });
-  if(db.current.done||confirm("This month isn't signed off. File it anyway?")){
-    db.reports.unshift(db.current);
-    db.current=newReport(m,type,carry);
-    save(); closeM("m-new"); show("home"); render();
+
+  if(db.current.month===m && db.current.type===type){
+    closeM("m-new"); show("home"); render(); return;
   }
+
+  var idx=findReport(m,type);
+  if(idx>=0){
+    if(!confirm("Open "+monthLabel(m)+" for editing?\n\nYour current "+monthLabel(db.current.month)+" round will be saved under Previous reports."))
+      return;
+    parkCurrent();
+    db.current=db.reports.splice(idx,1)[0];
+    save(); closeM("m-new"); show("home"); render(); return;
+  }
+
+  var advancing=m>db.current.month;
+  var msg;
+  if(advancing){
+    msg="Start "+monthLabel(m)+"?\n\n"+
+      (db.current.done?"":"Current "+monthLabel(db.current.month)+" is not signed off yet — it will still be saved to History.\n\n")+
+      "Open faults from "+monthLabel(db.current.month)+" will carry forward.";
+  } else {
+    msg="Create a new blank report for "+monthLabel(m)+"?\n\n"+
+      "Your current "+monthLabel(db.current.month)+" round will be saved under Previous reports. "+
+      "No faults will be copied onto the past month.";
+  }
+  if(!confirm(msg)) return;
+
+  var prev=db.current;
+  parkCurrent();
+  var carry=advancing?carryFrom(prev):[];
+  db.current=newReport(m,type,carry);
+  save(); closeM("m-new"); show("home"); render();
 }
+/** Keep old name working if anything still calls it. */
+function startNewMonth(){ goToMonth(); }
 
 /* ---------------- HISTORY ---------------- */
 function renderHist(){
   var h="";
+  // Show active round at top so it's clear what you're on
+  var c=db.current;
+  if(c){
+    var ciss=0;
+    db.sites.forEach(function(s){
+      var x=c.results[s.id]; if(x&&((x.faults&&x.faults.length)||x.fire==="fault")) ciss++;
+    });
+    h+='<div class="hist" style="border-color:var(--blue);box-shadow:0 0 0 1px rgba(13,157,219,.15)">'+
+       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
+       '<div class="grow"><b style="font-size:15px">'+monthLabel(c.month)+'</b>'+
+       '<div style="font-size:12.5px;color:var(--ink3)">'+
+       (c.type==="annual"?"Annual 3-hour":"Monthly function")+' · '+
+       (c.done?"signed":"in progress")+' · '+
+       '<span class="tag '+(ciss?"t-w":"t-ok")+'">'+(ciss?ciss+" needing action":"all clear")+'</span>'+
+       ' · <span class="tag t-ok">open now</span></div></div>'+
+       '<button class="btn g sm" onclick="show(\'home\')">View</button>'+
+       '<button class="btn g sm" onclick="reprintCurrent()">PDF</button></div></div>';
+  }
   db.reports.forEach(function(r,i){
     var iss=0; db.sites.forEach(function(s){
       var x=r.results[s.id]; if(x&&(x.faults.length||x.fire==="fault")) iss++; });
-    h+='<div class="hist"><div style="display:flex;align-items:center;gap:10px">'+
+    h+='<div class="hist"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
        '<div class="grow"><b style="font-size:15px">'+monthLabel(r.month)+'</b>'+
        '<div style="font-size:12.5px;color:var(--ink3)">'+
        (r.type==="annual"?"Annual 3-hour":"Monthly function")+' · '+esc(r.engineer||"unsigned")+
        ' · <span class="tag '+(iss?"t-w":"t-ok")+'">'+(iss?iss+" needing action":"all clear")+'</span></div></div>'+
+       '<button class="btn p sm" onclick="amendReport('+i+')">Amend</button>'+
        '<button class="btn g sm" onclick="reprint('+i+')">PDF</button></div></div>';
   });
   document.getElementById("histList").innerHTML = h ||
-    '<div class="empty"><span class="e">🗂️</span>No filed reports yet.</div>';
+    '<div class="empty"><span class="e">🗂️</span>No reports yet.</div>';
 }
 function reprint(i){ buildPrint(db.reports[i]); setTimeout(function(){window.print();},200); }
+function reprintCurrent(){ buildPrint(db.current); setTimeout(function(){window.print();},200); }
+function amendReport(i){
+  var r=db.reports[i];
+  if(!r) return;
+  if(!confirm("Open "+monthLabel(r.month)+" for amendments?\n\n"+
+      "Your current "+monthLabel(db.current.month)+" round will be saved under Previous reports. "+
+      "Change any sites, then Sign & finish again to update the PDF."))
+    return;
+  parkCurrent();
+  // re-find index in case parkCurrent replaced/reordered
+  var idx=findReport(r.month,r.type);
+  if(idx<0) idx=i;
+  if(idx>=db.reports.length || db.reports[idx].id!==r.id){
+    idx=-1;
+    for(var j=0;j<db.reports.length;j++) if(db.reports[j].id===r.id){ idx=j; break; }
+  }
+  if(idx<0) return alert("Could not find that report.");
+  db.current=db.reports.splice(idx,1)[0];
+  save(); show("home"); render();
+}
 
 /* ---------------- MENU / ADMIN ---------------- */
 function renderMenu(){
