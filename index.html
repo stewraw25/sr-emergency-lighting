@@ -543,11 +543,10 @@ function allWorking(){
     r.checked=true; r.faults=[];
     if(s.fire&&!r.fire) r.fire="ok";
   }
-  save(); openSheet(sheetSite);
+  save(); render(); openSheet(sheetSite);
 }
 function saveSite(){
   var r=siteResult(sheetSite);
-  r.checked=true;
   var n=document.getElementById("siteNote"); if(n) r.note=n.value;
   var fn=document.getElementById("fireNote"); if(fn) r.fireNote=fn.value;
   var on=document.querySelector("#fireSeg button.on"); if(on) r.fire=on.getAttribute("data-v");
