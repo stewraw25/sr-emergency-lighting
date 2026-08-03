@@ -5,19 +5,17 @@ Mobile app for recording monthly emergency lighting function tests and the annua
 
 Built for **SR Electrical & Security** (Stewart Rawson Electrical Ltd).
 
-## Use it
+## Use it on a phone
 
-Open the link on your phone, then **Share → Add to Home Screen**.
-It runs full screen and works with no signal — everything is stored on the phone.
+Open:
 
-## Loading your round
+**https://stewraw25.github.io/sr-emergency-lighting/**
 
-This page ships empty — no site or client data is held in this repository.
-Load your round once from the setup file the office sends you:
+Then **Share → Add to Home Screen**. It runs full screen and works with no signal —
+everything is stored on the phone.
 
-**Menu → Restore from back-up**
-
-After that the sites, isolation notes and any outstanding faults are on the phone.
+The round (sites, isolation notes, outstanding faults) is pre-loaded. First open
+shows all 10 Wingetts sites ready to check.
 
 ## What it does
 
@@ -30,5 +28,5 @@ After that the sites, isolation notes and any outstanding faults are on the phon
 
 ## Privacy
 
-No accounts, no servers, no tracking. All data stays in the browser on the
-phone it was entered on. Back up regularly from **Menu → Back up data**.
+No accounts, no servers, no tracking. Check results stay in the browser on the
+phone they were entered on. Back up regularly from **Menu → Back up data**.
