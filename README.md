@@ -5,6 +5,15 @@ Mobile app for recording monthly emergency lighting function tests and the annua
 
 Built for **SR Electrical & Security** (Stewart Rawson Electrical Ltd).
 
+## Signing in
+
+Use the same name and password as the SR Holiday Tracker. Signing in is what
+connects you to the office — a check done on site shows up on the office
+computer within seconds, and vice versa.
+
+It still works with no signal: everything saves on the phone and goes up once
+you're back in coverage. The chip in the top bar shows **Synced** or **Offline**.
+
 ## Use it on a phone
 
 Open:
