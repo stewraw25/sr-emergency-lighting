@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SR report self-test</title>
+</head>
+<body>
+<pre id="out">RUNNING</pre>
+<iframe id="app" title="app" style="width:390px;height:800px;border:0"></iframe>
+<script>
+function finish(msg){ document.getElementById("out").textContent = msg; }
+function run(){
+  var frame = document.getElementById("app");
+  var w = frame.contentWindow;
+  var RS = w.ReportStore;
+  if(!RS || !w.db || !w.db.sites || !w.db.sites.length) throw new Error("app did not boot");
+  var sites = w.db.sites;
+  w.db = RS.normaliseDb({
+    engineer:"Stewart Rawson", client:"Wingetts", clientLogo:"logo", metaRev:0,
+    sites:sites, current:RS.newReport("2026-09","monthly",[]), reports:[]
+  });
+  w.db.current.results.cs2 = {checked:true, faults:[], fire:"", fireNote:"", note:""};
+  w.db.current.done = true;
+  w.db.current.engineer = "Stewart Rawson";
+  w.db.current.date = "2026-09-30";
+  w.db.current.sig = "data:image/png,sept";
+  w.save();
+
+  w.db = RS.activateMonth(w.db, "2026-10", "monthly", {sinceLabel:"September 2026"});
+  w.db.current.results.cs2 = {
+    checked:true,
+    faults:[{ref:"All fittings", status:"dim", note:"October dim", photo:""}],
+    fire:"", fireNote:"", note:""
+  };
+  w.db.current.done = true;
+  w.db.current.engineer = "Stewart Rawson";
+  w.db.current.date = "2026-10-31";
+  w.db.current.sig = "data:image/png,oct";
+  w.save();
+
+  w.db = RS.activateMonth(w.db, "2026-11", "monthly", {sinceLabel:"October 2026"});
+  w.db.current.results.cs3 = {checked:true, faults:[], fire:"", fireNote:"", note:"November on site"};
+  w.save();
+  w.show("hist");
+  var hist = w.document.getElementById("histList").innerText;
+  ["September 2026","October 2026","November 2026"].forEach(function(label){
+    if(hist.indexOf(label) < 0) throw new Error("history missing "+label+" :: "+hist);
+  });
+
+  w.db = RS.activateMonth(w.db, "2026-10", "monthly", {sinceLabel:"November 2026"});
+  w.render();
+  var title = w.document.getElementById("hTitle").textContent;
+  if(title.indexOf("October 2026") < 0) throw new Error("reopen title "+title);
+  if(!w.db.current.results.cs2 || w.db.current.results.cs2.faults[0].note !== "October dim"){
+    throw new Error("October fault was not restored");
+  }
+  if(w.db.current.done !== true) throw new Error("October was no longer signed");
+
+  var gen = w.saveGen;
+  var stale = {
+    sites:w.db.sites, engineer:w.db.engineer, client:w.db.client, clientLogo:w.db.clientLogo, metaRev:0,
+    current:{id:"blank-nov", month:"2026-11", type:"monthly", rev:1, done:false, engineer:"", date:"", sig:"", carry:[], results:{}},
+    reports:[]
+  };
+  var applied = w.applyCloudSnapshot(stale, gen);
+  if(applied.stale) throw new Error("fresh snapshot was treated as stale");
+  var months = (w.db.reports||[]).map(function(r){ return r.month; }).join(",");
+  ["2026-09","2026-10","2026-11"].forEach(function(m){
+    if(months.indexOf(m) < 0) throw new Error("merge dropped "+m+" from "+months);
+  });
+  var oct = w.db.reports.filter(function(r){ return r.month==="2026-10"; })[0];
+  if(!oct || oct.results.cs2.faults[0].note !== "October dim" || !oct.done) throw new Error("October body lost in merge");
+
+  w.saveGen++;
+  var wiped = {sites:w.db.sites, current:{id:"x", month:"2026-11", type:"monthly", rev:1, results:{}, carry:[], done:false}, reports:[]};
+  var ignored = w.applyCloudSnapshot(wiped, gen);
+  if(!ignored.stale) throw new Error("old pull was applied");
+  months = (w.db.reports||[]).map(function(r){ return r.month; }).join(",");
+  if(months.indexOf("2026-10") < 0) throw new Error("stale pull removed October");
+
+  w.show("hist");
+  hist = w.document.getElementById("histList").innerText;
+  if(hist.indexOf("October 2026") < 0 || hist.indexOf("September 2026") < 0){
+    throw new Error("history after merge missing months :: "+hist);
+  }
+
+  w.db = RS.activateMonth(w.db, "2026-10", "monthly", {sinceLabel:"November 2026"});
+  w.openSheet("cs2");
+  var noteBox = w.document.getElementById("siteNote");
+  if(!noteBox) throw new Error("site notes box missing");
+  noteBox.value = "Loft key in the office";
+  noteBox.dispatchEvent(new w.Event("input"));
+  w.closeSheet();
+  if(!w.db.current.results.cs2 || w.db.current.results.cs2.note !== "Loft key in the office"){
+    throw new Error("closing the site did not keep the draft note");
+  }
+  var home = w.document.getElementById("siteList").innerText;
+  if(home.indexOf("note saved") < 0) throw new Error("round does not show the saved note :: "+home);
+  w.show("hist");
+  hist = w.document.getElementById("histList").innerText;
+  if(hist.indexOf("notes saved") < 0) throw new Error("history does not list the note :: "+hist);
+
+  w.db = RS.activateMonth(w.db, "2026-11", "monthly", {sinceLabel:"October 2026"});
+  w.db = RS.activateMonth(w.db, "2026-10", "monthly", {sinceLabel:"November 2026"});
+  w.openSheet("cs2");
+  noteBox = w.document.getElementById("siteNote");
+  if(!noteBox || noteBox.value !== "Loft key in the office"){
+    throw new Error("October note was lost after opening November");
+  }
+  w.closeSheet();
+
+  var remoteNote = {
+    sites:w.db.sites, engineer:w.db.engineer, client:w.db.client, clientLogo:w.db.clientLogo, metaRev:0,
+    current:{
+      id:w.db.current.id, month:"2026-10", type:"monthly", rev:40, done:true,
+      engineer:"Ryan Harper", date:"2026-10-31", sig:"data:image/png,oct", carry:[],
+      results:{ cs2:{ checked:true, faults:[{ref:"All fittings", status:"dim", note:"October dim", photo:""}], fire:"", fireNote:"", note:"" } }
+    },
+    reports:[]
+  };
+  var kept = w.applyCloudSnapshot(remoteNote, w.saveGen);
+  if(kept.stale) throw new Error("note snapshot was treated as stale");
+  if(!w.db.current.results.cs2 || w.db.current.results.cs2.note !== "Loft key in the office"){
+    throw new Error("a newer month copy dropped the site note");
+  }
+  if(w.db.current.results.cs2.faults[0].note !== "October dim") throw new Error("October fault lost beside the note");
+  w.openSheet("cs2");
+  if(w.document.getElementById("siteNote").value !== "Loft key in the office"){
+    throw new Error("reopened sheet does not show the saved note");
+  }
+  w.closeSheet();
+  finish("SELFTEST_OK");
+}
+window.addEventListener("load", function(){
+  ["srEmergencyLighting_v1","srLightingQueue_v1","srLightingDirty_v1","srLightingSession_v1"].forEach(function(k){
+    try{ localStorage.removeItem(k); }catch(e){}
+  });
+  var frame = document.getElementById("app");
+  frame.onload = function(){
+    try{ run(); }
+    catch(e){ finish("SELFTEST_FAIL " + (e && e.message ? e.message : e)); }
+  };
+  frame.src = "../index.html";
+});
+</script>
+</body>
+</html>
