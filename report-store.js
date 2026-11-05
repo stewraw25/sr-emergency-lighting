@@ -84,6 +84,8 @@
       if (r.fire === undefined) r.fire = "";
       if (r.fireNote === undefined) r.fireNote = "";
       if (r.note === undefined) r.note = "";
+      if (r.noteSet) r.noteSet = true; else delete r.noteSet;
+      if (r.fireNoteSet) r.fireNoteSet = true; else delete r.fireNoteSet;
       rep.results[k] = r;
     });
     rep.done = !!rep.done;
@@ -143,6 +145,118 @@
     return a;
   }
 
+  function mergeText(primary, secondary) {
+    primary = primary || "";
+    secondary = secondary || "";
+    if (!primary) return secondary;
+    if (!secondary) return primary;
+    if (primary.indexOf(secondary) >= 0) return primary;
+    if (secondary.indexOf(primary) >= 0) return secondary;
+    return primary + "\n" + secondary;
+  }
+
+  /* A newer save can clear a note on purpose (noteSet, higher rev, empty text).
+     Any other empty note does not erase text that still exists on the other copy. */
+  function pickSavedText(winnerSide, loserSide, winner, loser, flag) {
+    var w = (winnerSide && winnerSide[flag === "noteSet" ? "note" : "fireNote"]) || "";
+    var l = (loserSide && loserSide[flag === "noteSet" ? "note" : "fireNote"]) || "";
+    if (!l) return w;
+    if (!w && winnerSide && winnerSide[flag] && (+winner.rev > +loser.rev)) return "";
+    return mergeText(w, l);
+  }
+
+  function mergeFaults(primary, secondary) {
+    var out = asList(primary).map(clone);
+    asList(secondary).forEach(function (f) {
+      if (!f) return;
+      var idx = -1;
+      for (var i = 0; i < out.length; i++) {
+        if ((out[i].ref || "") === (f.ref || "") && (out[i].status || "") === (f.status || "")) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) { out.push(clone(f)); return; }
+      if (!out[idx].note && f.note) out[idx].note = f.note;
+      if (!out[idx].photo && f.photo) out[idx].photo = f.photo;
+    });
+    return out;
+  }
+
+  function mergeCarry(primary, secondary) {
+    var out = asList(primary).map(clone);
+    asList(secondary).forEach(function (c) {
+      if (!c) return;
+      var found = out.some(function (x) {
+        return x.site === c.site && x.ref === c.ref && (x.note || "") === (c.note || "") && (x.since || "") === (c.since || "");
+      });
+      if (!found) out.push(clone(c));
+    });
+    return out;
+  }
+
+  function mergeReportBody(winner, loser) {
+    if (!winner) return loser ? fixRep(clone(loser)) : null;
+    if (!loser) return fixRep(clone(winner));
+    var out = clone(winner);
+    out.results = clone(winner.results || {});
+    var loserResults = loser.results || {};
+    Object.keys(loserResults).forEach(function (id) {
+      var l = loserResults[id];
+      if (!l) return;
+      if (!out.results[id]) { out.results[id] = clone(l); return; }
+      var w = out.results[id];
+      w.note = pickSavedText(w, l, winner, loser, "noteSet");
+      w.fireNote = pickSavedText(w, l, winner, loser, "fireNoteSet");
+      if (w.note) w.noteSet = true;
+      if (w.fireNote) w.fireNoteSet = true;
+      w.faults = mergeFaults(w.faults, l.faults);
+      if (!w.fire && l.fire) w.fire = l.fire;
+      if (!w.checked && l.checked && !((+winner.rev || 0) > (+loser.rev || 0))) w.checked = true;
+    });
+    out.carry = mergeCarry(out.carry, loser.carry);
+    if (!out.sig && loser.sig) out.sig = loser.sig;
+    if (!out.done && loser.done && (loser.sig || loser.engineer)) out.done = true;
+    if (!out.engineer && loser.engineer) out.engineer = loser.engineer;
+    if (!out.date && loser.date) out.date = loser.date;
+    return fixRep(out);
+  }
+
+  function combineReports(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    var winner = prefer(a, b);
+    var loser = winner === a ? b : a;
+    return mergeReportBody(winner, loser);
+  }
+
+  function contentStamp(rep) {
+    rep = fixRep(clone(rep));
+    if (!rep) return "";
+    return JSON.stringify(stable({
+      month: rep.month, type: rep.type, done: rep.done,
+      engineer: rep.engineer, date: rep.date, sig: rep.sig,
+      results: rep.results, carry: rep.carry
+    }));
+  }
+
+  function replaceSlot(list, rep) {
+    rep = fixRep(clone(rep));
+    var out = [];
+    var placed = false;
+    asList(list).forEach(function (raw) {
+      var r = fixRep(clone(raw));
+      if (!r) return;
+      if (r.id === rep.id || slotKey(r) === slotKey(rep)) {
+        if (!placed) { out.push(clone(rep)); placed = true; }
+        return;
+      }
+      out.push(r);
+    });
+    if (!placed) out.push(clone(rep));
+    return sortReports(out);
+  }
+
   function sortReports(list) {
     return list.slice().sort(function (a, b) {
       if (a.month !== b.month) return a.month < b.month ? 1 : -1;
@@ -157,7 +271,7 @@
         var rep = fixRep(clone(raw));
         if (!rep || !isDurable(rep)) return;
         var k = slotKey(rep);
-        bySlot[k] = prefer(bySlot[k], rep);
+        bySlot[k] = combineReports(bySlot[k], rep);
       });
     });
     if (priority && isDurable(priority)) {
@@ -165,8 +279,9 @@
       var k = slotKey(p);
       var cur = bySlot[k];
       if (!cur) bySlot[k] = p;
-      else if (isShell(p) && !isShell(cur)) { /* keep the completed copy */ }
-      else if ((+p.rev || 0) >= (+cur.rev || 0)) bySlot[k] = p;
+      else if (isShell(p) && !isShell(cur)) bySlot[k] = mergeReportBody(cur, p);
+      else if ((+p.rev || 0) >= (+cur.rev || 0)) bySlot[k] = mergeReportBody(p, cur);
+      else bySlot[k] = mergeReportBody(cur, p);
     }
     return sortReports(Object.keys(bySlot).map(function (k) { return bySlot[k]; }));
   }
@@ -285,6 +400,8 @@
     var current = chooseCurrent(local.current, remote.current);
     if (current && isDurable(current)) {
       reports = mergeReportLists([reports, [current]], current);
+      var openIdx = findReport(reports, current.month, current.type);
+      if (openIdx >= 0) current = clone(reports[openIdx]);
     }
     var lr = +local.metaRev || 0;
     var rr = +remote.metaRev || 0;
@@ -316,8 +433,19 @@
        saved month. Signing in saves the engineer name and must not push a
        blank current month over the shared record. */
     if (!isDurable(db.current)) return db;
+    var idx = findReport(db.reports, db.current.month, db.current.type);
+    var prev = idx >= 0 ? db.reports[idx] : null;
+    /* Saving again with the same checks and notes must not invent a newer
+       revision. A month switch on another device was outranking the copy
+       that actually held the notes. */
+    if (prev && contentStamp(prev) === contentStamp(db.current)) {
+      db.current.rev = prev.rev;
+      db.current.savedAt = prev.savedAt || db.current.savedAt;
+      if (prev.id) db.current.id = prev.id;
+      return db;
+    }
     db.current = touch(db.current);
-    db.reports = mergeReportLists([db.reports, [db.current]], db.current);
+    db.reports = replaceSlot(db.reports, db.current);
     return db;
   }
 
@@ -354,8 +482,18 @@
     var leaving = db.current ? fixRep(clone(db.current)) : null;
     if (leaving && leaving.month === month && (leaving.type || "monthly") === type) return db;
     if (leaving) {
-      leaving = touch(leaving);
-      db.reports = mergeReportLists([db.reports, [leaving]], leaving);
+      var parked = findReport(db.reports, leaving.month, leaving.type);
+      var prev = parked >= 0 ? db.reports[parked] : null;
+      if (!prev) {
+        leaving = touch(leaving);
+        db.reports = replaceSlot(db.reports, leaving);
+      } else if (contentStamp(prev) !== contentStamp(leaving)) {
+        var merged = mergeReportBody(leaving, prev);
+        if (contentStamp(merged) !== contentStamp(prev)) {
+          leaving = touch(merged);
+          db.reports = replaceSlot(db.reports, leaving);
+        }
+      }
     }
     var idx = findReport(db.reports, month, type);
     if (idx >= 0) {

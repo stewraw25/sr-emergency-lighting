@@ -43,6 +43,7 @@ shows all 10 Wingetts sites ready to check.
 - Photos from the phone camera against any fault
 - On-screen signature, then a branded PDF ready to email the managing agent
 - Keeps every saved month (monthly and annual) and opens it again from Previous reports
+- Keeps site notes and panel notes with that month, including notes written before sign-off
 - Back up and restore your data as a file
 
 ## Where reports live
@@ -65,6 +66,13 @@ are added.
 Previous reports lists every saved month except the one open now, which is shown
 at the top of that screen. Signing a month files it immediately. Starting or
 opening another month leaves the one you were on in the list.
+
+Site notes, fire-panel notes and fault notes are part of that month. They are
+not a separate list. Closing a site, logging a fault, or switching month saves
+the note that is on screen. A note-only site shows "note saved" on the round.
+Signed in, those notes sync with the office and the phones. A newer copy of the
+same month that never had the note does not wipe it. Clearing the note on this
+phone and saving the site does remove it.
 
 ## Restoring a month that disappeared before this fix
 

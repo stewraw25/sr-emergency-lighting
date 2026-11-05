@@ -360,3 +360,107 @@ test("merging a backup adds its months and keeps a newer local October", () => {
   assert.ok(RS.monthsIn(merged).indexOf("2026-05|monthly") >= 0);
   assert.ok(RS.monthsIn(merged).indexOf("2026-11|monthly") >= 0);
 });
+
+test("a site note is saved with the month before sign-off and survives opening another month", () => {
+  let db = base(RS.newReport("2026-10", "monthly", []));
+  db.current.results.cs2 = {
+    checked: false, faults: [], fire: "", fireNote: "", note: "Gate code 1234", noteSet: true
+  };
+  db = RS.persistCurrent(db);
+  assert.equal(db.current.done, false);
+  assert.ok(RS.monthsIn(db).indexOf("2026-10|monthly") >= 0);
+  const rev = db.current.rev;
+  db = RS.activateMonth(db, "2026-11", "monthly", { sinceLabel: "October 2026" });
+  db.current.results.cs3 = {
+    checked: false, faults: [], fire: "", fireNote: "ZONE 1 lamp", fireNoteSet: true, note: ""
+  };
+  db = RS.persistCurrent(db);
+  db = RS.activateMonth(db, "2026-10", "monthly");
+  assert.equal(db.current.results.cs2.note, "Gate code 1234");
+  assert.equal(db.current.rev, rev, "reopening an unchanged month must not outrank the saved notes");
+  const nov = db.reports.filter(function (r) { return r.month === "2026-11"; })[0];
+  assert.equal(nov.results.cs3.fireNote, "ZONE 1 lamp");
+  assert.equal(nov.done, false);
+  db = RS.activateMonth(db, "2026-11", "monthly");
+  assert.equal(db.current.results.cs3.fireNote, "ZONE 1 lamp");
+  assert.ok(RS.monthsIn(db).indexOf("2026-10|monthly") >= 0);
+});
+
+test("a newer cloud copy that never stored the note does not drop it", () => {
+  let local = base(RS.newReport("2026-11", "monthly", []));
+  local.current.results.cs2 = {
+    checked: true, faults: [], fire: "", fireNote: "", note: "Ryan: loft key in the office", noteSet: true
+  };
+  local.current.results.saani = {
+    checked: true,
+    faults: [{ ref: "Bulkhead", status: "dim", note: "Left of the door", photo: "" }],
+    fire: "fault", fireNote: "Zone 1", fireNoteSet: true, note: ""
+  };
+  local = RS.persistCurrent(local);
+  const remote = base({
+    id: "nov-switch",
+    month: "2026-11",
+    type: "monthly",
+    rev: 9,
+    done: false,
+    engineer: "Ryan Harper",
+    date: "2026-11-05",
+    sig: "",
+    carry: [],
+    savedAt: "2026-11-05T12:00:00.000Z",
+    results: {
+      cs2: { checked: true, faults: [], fire: "", fireNote: "", note: "" },
+      saani: { checked: true, faults: [], fire: "", fireNote: "", note: "" }
+    }
+  });
+  const merged = RS.mergeDb(local, remote);
+  assert.equal(merged.current.month, "2026-11");
+  assert.equal(merged.current.results.cs2.note, "Ryan: loft key in the office");
+  assert.equal(merged.current.results.saani.fireNote, "Zone 1");
+  assert.equal(merged.current.results.saani.fire, "fault");
+  assert.equal(merged.current.results.saani.faults[0].note, "Left of the door");
+  const again = RS.mergeDb(merged, remote);
+  assert.equal(again.current.results.cs2.note, "Ryan: loft key in the office");
+  assert.equal(again.current.results.cs2.note.indexOf("\n"), -1);
+  const signed = doneReport("2026-10", "October dim", "oct");
+  const withSigned = RS.mergeDb(again, base(signed, [signed]));
+  assert.equal(withSigned.reports.filter(function (r) { return r.month === "2026-10"; })[0].done, true);
+  assert.equal(withSigned.current.results.cs2.note, "Ryan: loft key in the office");
+});
+
+test("a longer note is kept and an explicit clear on a newer save stays cleared", () => {
+  const older = doneReport("2026-07", "July fault", "jul");
+  older.results.cs2.note = "Call before arrival";
+  older.rev = 2;
+  const longer = doneReport("2026-07", "July fault", "jul");
+  longer.results.cs2.note = "Call before arrival. Gate code 1234";
+  longer.results.cs2.noteSet = true;
+  longer.rev = 3;
+  let merged = RS.mergeDb(base(longer, [longer]), base(older, [older]));
+  let jul = merged.reports.filter(function (r) { return r.month === "2026-07"; })[0];
+  assert.equal(jul.results.cs2.note, "Call before arrival. Gate code 1234");
+  assert.equal(jul.results.cs2.faults[0].note, "July fault");
+
+  const cleared = doneReport("2026-07", "July fault", "jul");
+  cleared.results.cs2.note = "";
+  cleared.results.cs2.noteSet = true;
+  cleared.rev = 6;
+  merged = RS.mergeDb(base(cleared, [cleared]), base(longer, [longer]));
+  jul = merged.reports.filter(function (r) { return r.month === "2026-07"; })[0];
+  assert.equal(jul.results.cs2.note, "");
+  assert.equal(jul.results.cs2.faults[0].note, "July fault");
+  assert.equal(jul.done, true);
+});
+
+test("switching month without an edit does not bump the revision", () => {
+  let db = base(doneReport("2026-10", "October dim", "oct"));
+  db.current = doneReport("2026-10", "October dim", "oct");
+  db = RS.persistCurrent(db);
+  const rev = db.reports.filter(function (r) { return r.month === "2026-10"; })[0].rev;
+  db = RS.activateMonth(db, "2026-11", "monthly", { sinceLabel: "October 2026" });
+  db = RS.activateMonth(db, "2026-10", "monthly");
+  assert.equal(db.current.rev, rev);
+  assert.equal(db.current.results.cs2.faults[0].note, "October dim");
+  db = RS.persistCurrent(db);
+  assert.equal(db.current.rev, rev);
+});

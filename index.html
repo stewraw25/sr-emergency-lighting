@@ -253,7 +253,7 @@ text-transform:uppercase;letter-spacing:.03em;border:1px solid #cfdae3}
   <!-- HISTORY -->
   <div class="scr" id="scr-hist">
     <div class="hero"><h2>Previous reports</h2>
-      <div class="sub">Open any month to amend checks, or re-print the PDF. Every saved month stays on this list and is shared with the office while you are signed in.</div></div>
+      <div class="sub">Open any month to amend checks, or re-print the PDF. Notes and every saved month stay on this list and are shared with the office while you are signed in.</div></div>
     <div id="histList"></div>
   </div>
 
@@ -748,8 +748,10 @@ function render(){
     var r=db.current.results[s.id], n=siteFaultCount(s.id);
     var cls = !r||!r.checked ? "" : (n? "issue":"done");
     var mark = !r||!r.checked ? (db.sites.indexOf(s)+1) : (n? "!" : "✓");
-    var meta = !r||!r.checked ? (s.count+" fittings · not checked yet")
+    var noted = !!(r && ((r.note && String(r.note).trim()) || (r.fireNote && String(r.fireNote).trim())));
+    var meta = !r||!r.checked ? (s.count+" fittings · "+(noted?"note saved":"not checked yet"))
              : (n? n+" issue"+(n===1?"":"s")+" logged" : "All "+s.count+" working");
+    if(r && r.checked && noted) meta += " · note saved";
     h+='<button class="site" onclick="openSheet(\''+s.id+'\')">'+
        '<div class="dot '+cls+'">'+mark+'</div>'+
        '<div class="grow"><div class="nm">'+esc(s.name)+'</div><div class="me">'+esc(meta)+'</div></div>'+
@@ -819,28 +821,64 @@ function openSheet(id){
   }
 
   h+='<div class="card"><h3>Site notes</h3><textarea id="siteNote" rows="3" '+
-     'placeholder="Anything else worth recording">'+esc(r.note)+'</textarea></div>';
+     'placeholder="Saved with this month, even before sign-off">'+esc(r.note)+'</textarea></div>';
 
   document.getElementById("shBody").innerHTML=h;
 
+  var noteBox=document.getElementById("siteNote");
+  if(noteBox) noteBox.addEventListener("input", queueSheetDraft);
+  var fireBox=document.getElementById("fireNote");
+  if(fireBox) fireBox.addEventListener("input", queueSheetDraft);
   if(s.fire){
     var fs=document.querySelectorAll("#fireSeg button");
     for(var i=0;i<fs.length;i++) fs[i].onclick=function(){
       var all=document.querySelectorAll("#fireSeg button");
       for(var j=0;j<all.length;j++) all[j].classList.remove("on");
       this.classList.add("on");
+      queueSheetDraft();
     };
   }
   document.getElementById("sheet").classList.add("on");
   window.scrollTo(0,0);
 }
-function closeSheet(){ document.getElementById("sheet").classList.remove("on"); render(); }
+var draftTimer=null;
+function commitSheetDraft(){
+  if(!sheetSite) return false;
+  var sheet=document.getElementById("sheet");
+  if(!sheet || !sheet.classList.contains("on")) return false;
+  var r=siteResult(sheetSite);
+  var changed=false;
+  var n=document.getElementById("siteNote");
+  if(n && n.value!==(r.note||"")){ r.note=n.value; r.noteSet=true; changed=true; }
+  var fn=document.getElementById("fireNote");
+  if(fn && fn.value!==(r.fireNote||"")){ r.fireNote=fn.value; r.fireNoteSet=true; changed=true; }
+  var on=document.querySelector("#fireSeg button.on");
+  if(on){
+    var v=on.getAttribute("data-v")||"";
+    if(v!==(r.fire||"")){ r.fire=v; changed=true; }
+  }
+  return changed;
+}
+function flushSheetDraft(){
+  if(draftTimer){ clearTimeout(draftTimer); draftTimer=null; }
+  if(commitSheetDraft()) save();
+}
+function queueSheetDraft(){
+  if(draftTimer) clearTimeout(draftTimer);
+  draftTimer=setTimeout(flushSheetDraft, 400);
+}
+function closeSheet(){
+  flushSheetDraft();
+  document.getElementById("sheet").classList.remove("on");
+  render();
+}
 
 function allWorking(){
+  flushSheetDraft();
   var r=siteResult(sheetSite);
   var s=db.sites.filter(function(x){return x.id===sheetSite;})[0];
   if(r.checked && !r.faults.length){
-    r.checked=false; r.fire=""; r.fireNote="";
+    r.checked=false; r.fire=""; r.fireNote=""; r.fireNoteSet=true;
   } else {
     if(r.faults.length && !confirm("That will clear the "+r.faults.length+
        " fault"+(r.faults.length===1?"":"s")+" logged here. Mark everything as working?")) return;
@@ -850,19 +888,19 @@ function allWorking(){
   save(); render(); openSheet(sheetSite);
 }
 function saveSite(){
-  var r=siteResult(sheetSite);
-  var n=document.getElementById("siteNote"); if(n) r.note=n.value;
-  var fn=document.getElementById("fireNote"); if(fn) r.fireNote=fn.value;
-  var on=document.querySelector("#fireSeg button.on"); if(on) r.fire=on.getAttribute("data-v");
-  save(); closeSheet();
+  flushSheetDraft();
+  save();
+  closeSheet();
 }
 function carryFixed(i){
+  flushSheetDraft();
   var list=(db.current.carry||[]).filter(function(c){return c.site===sheetSite;});
   var item=list[i];
   db.current.carry=db.current.carry.filter(function(c){return c!==item;});
   save(); openSheet(sheetSite);
 }
 function carryStill(i){
+  flushSheetDraft();
   var list=(db.current.carry||[]).filter(function(c){return c.site===sheetSite;});
   var item=list[i];
   var r=siteResult(sheetSite);
@@ -896,9 +934,11 @@ function openFault(i){
 }
 function editFault(i){ openFault(i); }
 function delFault(i){
+  flushSheetDraft();
   var r=siteResult(sheetSite); r.faults.splice(i,1); save(); openSheet(sheetSite);
 }
 function saveFault(){
+  flushSheetDraft();
   var ref=document.getElementById("fRef").value.trim();
   var on=document.querySelector("#fSeg button.on");
   if(!ref) return alert("Say which fitting or where it is.");
@@ -1259,6 +1299,7 @@ function goToMonth(){
       "No faults will be copied onto the past month.";
   }
   if(!confirm(msg)) return;
+  flushSheetDraft();
   db=ReportStore.activateMonth(db, m, type, {advancing:existing?false:advancing, sinceLabel:monthLabel(db.current.month)});
   save(); closeM("m-new"); show("home"); render();
 }
@@ -1267,6 +1308,17 @@ function startNewMonth(){ goToMonth(); }
 
 /* ---------------- HISTORY ---------------- */
 function jsArg(s){ return String(s==null?"":s).replace(/\\/g,"\\\\").replace(/'/g,"\\'"); }
+function reportHasNotes(rep){
+  if(!rep||!rep.results) return false;
+  var found=false;
+  Object.keys(rep.results).forEach(function(id){
+    var x=rep.results[id];
+    if(!x) return;
+    if(x.note && String(x.note).trim()) found=true;
+    if(x.fireNote && String(x.fireNote).trim()) found=true;
+  });
+  return found;
+}
 function renderHist(){
   var h="";
   var c=db.current;
@@ -1282,6 +1334,7 @@ function renderHist(){
        (c.type==="annual"?"Annual 3-hour":"Monthly function")+' · '+
        (c.done?"signed":"in progress")+' · '+
        '<span class="tag '+(ciss?"t-w":"t-ok")+'">'+(ciss?ciss+" needing action":"all clear")+'</span>'+
+       (reportHasNotes(c)?' · <span class="tag t-ok">notes saved</span>':'')+
        ' · <span class="tag t-ok">open now</span></div></div>'+
        '<button class="btn g sm" onclick="show(\'home\')">View</button>'+
        '<button class="btn g sm" onclick="reprintCurrent()">PDF</button></div></div>';
@@ -1293,7 +1346,9 @@ function renderHist(){
        '<div class="grow"><b style="font-size:15px">'+monthLabel(r.month)+'</b>'+
        '<div style="font-size:12.5px;color:var(--ink3)">'+
        (r.type==="annual"?"Annual 3-hour":"Monthly function")+' · '+esc(r.engineer||"unsigned")+
-       ' · <span class="tag '+(iss?"t-w":"t-ok")+'">'+(iss?iss+" needing action":"all clear")+'</span></div></div>'+
+       ' · <span class="tag '+(iss?"t-w":"t-ok")+'">'+(iss?iss+" needing action":"all clear")+'</span>'+
+       (reportHasNotes(r)?' · <span class="tag t-ok">notes saved</span>':'')+
+       '</div></div>'+
        '<button class="btn p sm" onclick="amendReportId(\''+jsArg(r.id)+'\')">Amend</button>'+
        '<button class="btn g sm" onclick="reprintId(\''+jsArg(r.id)+'\')">PDF</button></div></div>';
   });
@@ -1310,6 +1365,7 @@ function amendReportId(id){
       "Your current "+monthLabel(db.current.month)+" round will be saved under Previous reports. "+
       "Change any sites, then Sign & finish again to update the PDF."))
     return;
+  flushSheetDraft();
   db=ReportStore.activateMonth(db, r.month, r.type||"monthly", {sinceLabel:monthLabel(db.current.month)});
   save(); show("home"); render();
 }

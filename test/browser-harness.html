@@ -83,6 +83,52 @@ function run(){
   if(hist.indexOf("October 2026") < 0 || hist.indexOf("September 2026") < 0){
     throw new Error("history after merge missing months :: "+hist);
   }
+
+  w.db = RS.activateMonth(w.db, "2026-10", "monthly", {sinceLabel:"November 2026"});
+  w.openSheet("cs2");
+  var noteBox = w.document.getElementById("siteNote");
+  if(!noteBox) throw new Error("site notes box missing");
+  noteBox.value = "Loft key in the office";
+  noteBox.dispatchEvent(new w.Event("input"));
+  w.closeSheet();
+  if(!w.db.current.results.cs2 || w.db.current.results.cs2.note !== "Loft key in the office"){
+    throw new Error("closing the site did not keep the draft note");
+  }
+  var home = w.document.getElementById("siteList").innerText;
+  if(home.indexOf("note saved") < 0) throw new Error("round does not show the saved note :: "+home);
+  w.show("hist");
+  hist = w.document.getElementById("histList").innerText;
+  if(hist.indexOf("notes saved") < 0) throw new Error("history does not list the note :: "+hist);
+
+  w.db = RS.activateMonth(w.db, "2026-11", "monthly", {sinceLabel:"October 2026"});
+  w.db = RS.activateMonth(w.db, "2026-10", "monthly", {sinceLabel:"November 2026"});
+  w.openSheet("cs2");
+  noteBox = w.document.getElementById("siteNote");
+  if(!noteBox || noteBox.value !== "Loft key in the office"){
+    throw new Error("October note was lost after opening November");
+  }
+  w.closeSheet();
+
+  var remoteNote = {
+    sites:w.db.sites, engineer:w.db.engineer, client:w.db.client, clientLogo:w.db.clientLogo, metaRev:0,
+    current:{
+      id:w.db.current.id, month:"2026-10", type:"monthly", rev:40, done:true,
+      engineer:"Ryan Harper", date:"2026-10-31", sig:"data:image/png,oct", carry:[],
+      results:{ cs2:{ checked:true, faults:[{ref:"All fittings", status:"dim", note:"October dim", photo:""}], fire:"", fireNote:"", note:"" } }
+    },
+    reports:[]
+  };
+  var kept = w.applyCloudSnapshot(remoteNote, w.saveGen);
+  if(kept.stale) throw new Error("note snapshot was treated as stale");
+  if(!w.db.current.results.cs2 || w.db.current.results.cs2.note !== "Loft key in the office"){
+    throw new Error("a newer month copy dropped the site note");
+  }
+  if(w.db.current.results.cs2.faults[0].note !== "October dim") throw new Error("October fault lost beside the note");
+  w.openSheet("cs2");
+  if(w.document.getElementById("siteNote").value !== "Loft key in the office"){
+    throw new Error("reopened sheet does not show the saved note");
+  }
+  w.closeSheet();
   finish("SELFTEST_OK");
 }
 window.addEventListener("load", function(){
