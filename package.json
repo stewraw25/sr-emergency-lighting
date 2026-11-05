@@ -1,0 +1,9 @@
+{
+  "name": "sr-emergency-lighting",
+  "private": true,
+  "description": "SR Emergency Lighting Checks — static GitHub Pages app",
+  "scripts": {
+    "test": "node --test test/report-store.test.js",
+    "build": "node scripts/verify-production.js"
+  }
+}
